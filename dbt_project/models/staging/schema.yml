@@ -1,0 +1,49 @@
+version: 2
+
+models:
+  - name: stg_silver_ventas
+    description: >
+      Vista tipada sobre Silver. Estos tests son "duros" (severity error,
+      el default): si fallan, corta el pipeline, porque asumen que el batch
+      de limpieza/dedup ya garantizo estas condiciones.
+    columns:
+      - name: tx_id
+        tests:
+          - not_null
+          - unique
+      - name: cliente_id
+        tests:
+          - not_null
+      - name: producto
+        tests:
+          - not_null
+      - name: precio
+        tests:
+          - not_null
+      - name: cantidad
+        tests:
+          - not_null
+      - name: tipo_operacion
+        description: En Silver ya no deberian quedar DELETE (se borran en el MERGE).
+        tests:
+          - accepted_values:
+              values: ['INSERT', 'UPDATE']
+
+  - name: stg_bronze_ventas
+    description: >
+      Vista sobre Bronze tal cual llega. A diferencia de Silver, estos tests
+      van en severity=warn: Bronze es crudo a proposito (medallion), asi que
+      un dato sucio ahi es esperable y no deberia romper el pipeline — solo
+      queremos que quede loggeado como alerta para monitorear la calidad
+      del feed de origen (el productor / Kafka).
+    columns:
+      - name: tx_id
+        tests:
+          - not_null:
+              config:
+                severity: warn
+      - name: precio
+        tests:
+          - not_null:
+              config:
+                severity: warn

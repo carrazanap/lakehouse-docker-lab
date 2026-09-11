@@ -1,0 +1,27 @@
+name: 'lakehouse_gold'
+version: '1.0.0'
+config-version: 2
+
+profile: 'lakehouse'
+
+model-paths: ["models"]
+target-path: "target"
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+vars:
+  # Relacion (tabla o ruta Delta) que exponen los modelos Silver.
+  # - Local:      delta.`/opt/data_lakehouse/silver/ventas`  (lectura directa de Delta por path)
+  # - Databricks: catalogo.schema.tabla (ej: main.silver.ventas), registrada por el job de Silver
+  silver_ventas_relation: "{{ env_var('DBT_SILVER_RELATION', 'delta.`/opt/data_lakehouse/silver/ventas`') }}"
+  # Idem para Bronze (solo se usa localmente, para el modelo de staging "de monitoreo").
+  bronze_ventas_relation: "{{ env_var('DBT_BRONZE_RELATION', 'delta.`/opt/data_lakehouse/bronze/ventas`') }}"
+
+models:
+  lakehouse_gold:
+    staging:
+      +materialized: view
+    gold:
+      +materialized: table
+      +file_format: delta

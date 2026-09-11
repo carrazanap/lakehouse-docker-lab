@@ -1,0 +1,13 @@
+# Entorno principal de Airflow: solo lo necesario para orquestar y, en modo
+# databricks, disparar jobs en un workspace real. PySpark y dbt NO van aca
+# (ver Dockerfile: viven en /home/airflow/spark_venv para evitar conflictos
+# de dependencias con estos providers, p. ej. databricks-sql-connector).
+#
+# OJO: no agregar apache-airflow-providers-apache-spark aca aunque parezca
+# natural — trae pyspark como dependencia transitiva SIN pin de version
+# (instala la ultima, p. ej. pyspark 4.x) en este entorno, y como
+# spark-submit/dbt resuelven "python3" via PATH, eso puede terminar
+# pisando silenciosamente al pyspark 3.5.1 del venv aislado y romper la
+# compatibilidad con delta-spark. El DAG orquesta Databricks solo con el
+# provider de abajo; el spark-submit local sale siempre del venv.
+apache-airflow-providers-databricks==6.7.0

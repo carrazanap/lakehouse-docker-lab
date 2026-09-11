@@ -1,0 +1,52 @@
+version: 2
+
+models:
+  - name: gold_kpi_ventas
+    description: >
+      Metricas agregadas diarias de ventas (ingresos, unidades, ticket
+      promedio) calculadas sobre la capa Silver deduplicada.
+    columns:
+      - name: fecha
+        description: Dia calendario de las transacciones agregadas.
+        tests:
+          - not_null
+          - unique
+      - name: cantidad_transacciones
+        tests:
+          - not_null
+      - name: ingresos_totales
+        tests:
+          - not_null
+
+  - name: gold_kpi_producto
+    description: >
+      Metricas agregadas por producto (unidades vendidas, ingresos,
+      precio promedio) calculadas sobre la capa Silver deduplicada.
+    columns:
+      - name: producto
+        description: Nombre del producto.
+        tests:
+          - not_null
+          - unique
+      - name: unidades_vendidas
+        tests:
+          - not_null
+      - name: ingresos_totales
+        tests:
+          - not_null
+
+  - name: gold_kpi_ventas_hora
+    description: >
+      Igual que gold_kpi_ventas pero agrupado por hora en vez de por dia,
+      pensado para visualizar la evolucion dentro de una misma sesion.
+    columns:
+      - name: hora
+        tests:
+          - not_null
+          - unique
+      - name: cantidad_transacciones
+        tests:
+          - not_null
+      - name: ingresos_totales
+        tests:
+          - not_null

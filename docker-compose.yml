@@ -1,0 +1,237 @@
+x-airflow-image: &airflow-image
+  build:
+    context: ./airflow
+  environment: &airflow-common-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-airflow}:${POSTGRES_PASSWORD:-airflow}@postgres/${POSTGRES_DB:-airflow}
+    AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW__CORE__FERNET_KEY:-}
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "true"
+    AIRFLOW__CORE__DEFAULT_TIMEZONE: utc
+    EXECUTION_MODE: ${EXECUTION_MODE:-local}
+    LAKEHOUSE_PATH: ${LAKEHOUSE_PATH:-/opt/data_lakehouse}
+    KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
+    KAFKA_TOPIC: ${KAFKA_TOPIC:-ventas_cdc}
+    DBT_TARGET: ${DBT_TARGET:-local}
+    DBT_SILVER_RELATION: ${DBT_SILVER_RELATION:-delta.`/opt/data_lakehouse/silver/ventas`}
+    DATABRICKS_HOST: ${DATABRICKS_HOST:-}
+    DATABRICKS_HTTP_PATH: ${DATABRICKS_HTTP_PATH:-}
+    DATABRICKS_TOKEN: ${DATABRICKS_TOKEN:-}
+    DATABRICKS_CATALOG: ${DATABRICKS_CATALOG:-hive_metastore}
+    DATABRICKS_SCHEMA: ${DATABRICKS_SCHEMA:-gold}
+    DATABRICKS_SPARK_VERSION: ${DATABRICKS_SPARK_VERSION:-15.4.x-scala2.12}
+    DATABRICKS_NODE_TYPE: ${DATABRICKS_NODE_TYPE:-Standard_DS3_v2}
+    DATABRICKS_NUM_WORKERS: ${DATABRICKS_NUM_WORKERS:-1}
+    AIRFLOW_CONN_DATABRICKS_DEFAULT: ${AIRFLOW_CONN_DATABRICKS_DEFAULT:-}
+    SPARK_CONF_DIR: /opt/spark-conf
+  volumes: &airflow-common-volumes
+    - ./airflow/dags:/opt/airflow/dags
+    - airflow-logs:/opt/airflow/logs
+    - ./spark/jobs:/opt/spark_jobs
+    - ./spark/conf:/opt/spark-conf
+    - ./dbt_project:/opt/airflow/dbt_project
+    - ./data_lakehouse:/opt/data_lakehouse
+    - spark-ivy-cache:/home/airflow/.ivy2
+  user: "${AIRFLOW_UID:-50000}:0"
+  depends_on: &airflow-common-depends-on
+    postgres:
+      condition: service_healthy
+  networks:
+    - lakehouse-net
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # Streaming backbone
+  # ---------------------------------------------------------------------------
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.1
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - lakehouse-net
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.1
+    depends_on:
+      - zookeeper
+    ports:
+      - "9094:9094"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:9094
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,PLAINTEXT_HOST://0.0.0.0:9094
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    healthcheck:
+      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:9092", "--list"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+    networks:
+      - lakehouse-net
+
+  kafka-ui:
+    image: kafbat/kafka-ui:v1.5.0
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8089:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: lakehouse
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+    networks:
+      - lakehouse-net
+
+  producer:
+    build:
+      context: ./producer
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
+      KAFKA_TOPIC: ${KAFKA_TOPIC:-ventas_cdc}
+      PRODUCER_INTERVAL_SECONDS: ${PRODUCER_INTERVAL_SECONDS:-1}
+      PRODUCER_MAX_EVENTS: ${PRODUCER_MAX_EVENTS:-0}
+    restart: unless-stopped
+    networks:
+      - lakehouse-net
+
+  # ---------------------------------------------------------------------------
+  # Motor de computo (Spark + Delta Lake) - solo en EXECUTION_MODE=local
+  # ---------------------------------------------------------------------------
+  spark-streaming:
+    build:
+      context: ./spark
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
+      KAFKA_TOPIC: ${KAFKA_TOPIC:-ventas_cdc}
+      LAKEHOUSE_PATH: ${LAKEHOUSE_PATH:-/opt/data_lakehouse}
+    volumes:
+      - ./data_lakehouse:/opt/data_lakehouse
+      - spark-ivy-cache:/opt/ivy2
+    command: >
+      spark-submit
+      --packages io.delta:delta-spark_2.12:3.2.0,org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1,org.apache.kafka:kafka-clients:3.5.1
+      --master local[*]
+      /opt/spark/jobs/stream_kafka_to_bronze.py
+    restart: unless-stopped
+    networks:
+      - lakehouse-net
+
+  # ---------------------------------------------------------------------------
+  # Exploracion interactiva (Jupyter Lab + PySpark/Delta)
+  # ---------------------------------------------------------------------------
+  jupyter:
+    build:
+      context: ./jupyter
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8888:8888"
+    environment:
+      LAKEHOUSE_PATH: ${LAKEHOUSE_PATH:-/opt/data_lakehouse}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
+      KAFKA_TOPIC: ${KAFKA_TOPIC:-ventas_cdc}
+      SPARK_CONF_DIR: /opt/spark-conf
+    volumes:
+      - ./notebooks:/opt/notebooks
+      - ./data_lakehouse:/opt/data_lakehouse
+      - ./dbt_project:/opt/dbt_project:ro
+      - ./spark/conf:/opt/spark-conf
+      - spark-ivy-cache:/root/.ivy2
+    restart: unless-stopped
+    networks:
+      - lakehouse-net
+
+  # ---------------------------------------------------------------------------
+  # Dashboard de KPIs (Streamlit, lee Gold directo con delta-rs)
+  # ---------------------------------------------------------------------------
+  dashboard:
+    build:
+      context: ./dashboard
+    ports:
+      - "8501:8501"
+    environment:
+      GOLD_WAREHOUSE_PATH: /opt/dbt_project/spark-warehouse
+    volumes:
+      - ./dbt_project:/opt/dbt_project:ro
+    restart: unless-stopped
+    networks:
+      - lakehouse-net
+
+  # ---------------------------------------------------------------------------
+  # Orquestacion (Airflow)
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-airflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-airflow}
+      POSTGRES_DB: ${POSTGRES_DB:-airflow}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "${POSTGRES_USER:-airflow}"]
+      interval: 5s
+      retries: 10
+    networks:
+      - lakehouse-net
+
+  airflow-init:
+    <<: *airflow-image
+    depends_on: *airflow-common-depends-on
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        airflow db migrate
+        airflow users create \
+          --username "${_AIRFLOW_WWW_USER_USERNAME:-admin}" \
+          --password "${_AIRFLOW_WWW_USER_PASSWORD:-admin}" \
+          --firstname Data \
+          --lastname Engineer \
+          --role Admin \
+          --email admin@example.com || true
+
+  airflow-webserver:
+    <<: *airflow-image
+    command: webserver
+    ports:
+      - "8080:8080"
+    depends_on:
+      <<: *airflow-common-depends-on
+      airflow-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  airflow-scheduler:
+    <<: *airflow-image
+    command: scheduler
+    depends_on:
+      <<: *airflow-common-depends-on
+      airflow-init:
+        condition: service_completed_successfully
+
+networks:
+  lakehouse-net:
+    driver: bridge
+
+volumes:
+  pgdata:
+  airflow-logs:
+  spark-ivy-cache:

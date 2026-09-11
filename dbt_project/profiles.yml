@@ -1,0 +1,27 @@
+# profiles.yml del laboratorio. Se referencia con `dbt ... --profiles-dir .`
+# (o via DBT_PROFILES_DIR) para no depender de ~/.dbt/profiles.yml.
+#
+# El target activo se elige con la variable de entorno DBT_TARGET (ver .env):
+#   DBT_TARGET=local      -> Spark embebido (method: session) + Delta Lake local
+#   DBT_TARGET=databricks -> SQL Warehouse / cluster real de Azure Databricks
+
+lakehouse:
+  target: "{{ env_var('DBT_TARGET', 'local') }}"
+  outputs:
+
+    local:
+      type: spark
+      method: session
+      host: NA               # no se usa en method=session, pero el adaptador lo requiere
+      schema: default
+      threads: 2
+
+    databricks:
+      type: databricks
+      method: http
+      host: "{{ env_var('DATABRICKS_HOST') }}"
+      http_path: "{{ env_var('DATABRICKS_HTTP_PATH') }}"
+      token: "{{ env_var('DATABRICKS_TOKEN') }}"
+      catalog: "{{ env_var('DATABRICKS_CATALOG', 'hive_metastore') }}"
+      schema: "{{ env_var('DATABRICKS_SCHEMA', 'gold') }}"
+      threads: 4
