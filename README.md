@@ -107,7 +107,9 @@ lakehouse-docker-lab/
 ├── jupyter/                    # Jupyter Lab (PySpark+Delta) para explorar Bronze/Silver/Gold
 │   ├── Dockerfile
 │   └── requirements.txt
-├── notebooks/explorar_medallion.ipynb
+├── notebooks/
+│   ├── explorar_medallion.ipynb          # Jupyter (modo local)
+│   └── explorar_medallion_databricks.py  # equivalente para Databricks
 ├── dashboard/                  # Streamlit: dashboard de KPIs sobre la capa Gold
 │   ├── Dockerfile
 │   ├── requirements.txt
@@ -310,6 +312,26 @@ contra el SQL Warehouse indicado en `DATABRICKS_HTTP_PATH`.
 > Databricks Job/DLT aparte; podés detenerlos con
 > `docker compose stop spark-streaming` si el streaming Kafka→Bronze también
 > se implementa como un job nativo de Databricks.
+
+### 5. Explorar los datos desde Databricks (equivalente al Jupyter local)
+
+`notebooks/explorar_medallion_databricks.py` es la versión Databricks del
+notebook de exploración (`notebooks/explorar_medallion.ipynb`), adaptada a
+las convenciones nativas: usa el `spark` que ya viene inyectado (no crea una
+`SparkSession`), parámetros vía `dbutils.widgets` en vez de variables de
+entorno, `display(df)` en vez de `.toPandas()` + matplotlib, y lee Gold como
+tabla de catálogo (`catalogo.schema.tabla`) en vez de ruta Delta.
+
+Para usarla: en tu Workspace de Databricks, **Workspace → Import** (o dentro
+de un Repo) y subí el archivo `.py` tal cual — Databricks reconoce el
+encabezado `# Databricks notebook source` y lo abre como notebook con celdas.
+No incluye la celda de "espiar Kafka" del notebook local: un cluster de
+Databricks normalmente no tiene forma de llegar al Kafka que corre en tu
+Docker local.
+
+> A diferencia del resto del repo, este notebook no se pudo probar contra un
+> workspace real de Databricks — seguí las convenciones estándar pero
+> revisalo antes de confiar en él a ciegas.
 
 ---
 
