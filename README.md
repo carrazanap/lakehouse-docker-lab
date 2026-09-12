@@ -400,7 +400,7 @@ operativo).
 
 ---
 
-## Detalles de diseño relevantes para la clase
+## Decisiones de diseño
 
 - **CDC sintético**: `producer/cdc_producer.py` no solo inserta ventas nuevas;
   con probabilidad ~35% reutiliza un `tx_id` ya emitido para simular
@@ -421,13 +421,6 @@ operativo).
 - **Un único DAG para ambos modos**: `dag_medallion_pipeline.py` decide en
   tiempo de parseo (`EXECUTION_MODE`) si el paso de Silver es un
   `BashOperator` con `spark-submit local[*]` o un `DatabricksSubmitRunOperator`.
-- **PySpark/dbt en un virtualenv aislado dentro de la imagen de Airflow**:
-  `apache-airflow-providers-databricks` y `dbt-databricks` requieren versiones
-  incompatibles de `databricks-sql-connector`, así que no pueden convivir en
-  el mismo entorno de pip. Por eso `airflow/Dockerfile` crea
-  `/home/airflow/spark_venv` (pyspark, delta-spark, dbt-core, dbt-spark,
-  dbt-databricks) separado del entorno principal de Airflow, y el DAG invoca
-  `spark-submit`/`dbt` por ruta absoluta a ese venv.
 - **Dos formas distintas de leer Delta, a propósito**: Jupyter usa PySpark
   (motor completo, útil para explorar/transformar Bronze y Silver como lo
   harías en un notebook de Databricks), mientras que el dashboard de
