@@ -451,3 +451,21 @@ operativo).
   `spark/conf/spark-defaults.conf` o asignar más RAM a Docker Desktop.
 - **`dbt-databricks` rechaza el host**: `DATABRICKS_HOST` no debe incluir el
   prefijo `https://`.
+- **`dbt_run`/`dbt_test` fallan con `Unable to instantiate
+  org.apache.hadoop.hive.ql.metadata.SessionHiveMetaStoreClient`** (o en
+  `dbt_project/derby.log` aparece `ERROR XSLA7: Cannot redo operation null in
+  the log`): se corrompió el metastore Derby embebido que usa dbt en modo
+  `session` (`dbt_project/metastore_db/`). Pasa cuando el proceso que lo tenía
+  abierto se corta de golpe en vez de cerrarse ordenadamente — típicamente
+  después de que la laptop durmió, Docker Desktop se reinició, o se mató un
+  contenedor a la fuerza. Se arregla borrando el metastore y dejando que dbt
+  lo regenere solo en la próxima corrida — no se pierde nada real, ahí solo
+  se guarda a qué carpeta apunta cada tabla, no los datos:
+  ```bash
+  rm -rf dbt_project/metastore_db dbt_project/derby.log
+
+  # confirmar que se recrea limpio:
+  docker compose exec airflow-scheduler bash -c \
+    'export PATH="/home/airflow/spark_venv/bin:$PATH" && \
+     cd /opt/airflow/dbt_project && dbt run --profiles-dir . && dbt test --profiles-dir .'
+  ```

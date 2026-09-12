@@ -57,7 +57,27 @@ SPARK_SUBMIT_SILVER_CMD = (
     "/opt/spark_jobs/batch_bronze_to_silver.py"
 )
 
-DBT_RUN_CMD = f"export {PATH_PREFIX} && cd {DBT_PROJECT_DIR} && {SPARK_VENV_BIN}/dbt run --profiles-dir ."
+# El target "local" de dbt usa un metastore Derby embebido (metastore_db/) que
+# no tolera un apagado no ordenado (la laptop durmiendose, Docker Desktop
+# reiniciando, un contenedor matado a la fuerza): queda con el log de
+# transacciones corrupto y el siguiente dbt run/test falla con
+# "Unable to instantiate ...SessionHiveMetaStoreClient". Como es solo el
+# catalogo (no los datos: las tablas Gold siguen intactas en Delta), si
+# detectamos esa firma de corrupcion lo borramos antes de correr dbt para
+# que se regenere solo, en vez de dejar el DAG en rojo. No-op en Databricks
+# (ahi no existe este archivo).
+HEAL_DERBY_METASTORE_CMD = (
+    f'if [ -f "{DBT_PROJECT_DIR}/derby.log" ] && '
+    f'grep -q "Cannot redo operation" "{DBT_PROJECT_DIR}/derby.log" 2>/dev/null; then '
+    f'echo "Metastore Derby corrupto, regenerando..."; '
+    f'rm -rf "{DBT_PROJECT_DIR}/metastore_db" "{DBT_PROJECT_DIR}/derby.log"; '
+    f"fi"
+)
+
+DBT_RUN_CMD = (
+    f"export {PATH_PREFIX} && {HEAL_DERBY_METASTORE_CMD} && "
+    f"cd {DBT_PROJECT_DIR} && {SPARK_VENV_BIN}/dbt run --profiles-dir ."
+)
 DBT_TEST_CMD = f"export {PATH_PREFIX} && cd {DBT_PROJECT_DIR} && {SPARK_VENV_BIN}/dbt test --profiles-dir ."
 
 default_args = {
