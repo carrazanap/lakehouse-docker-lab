@@ -136,10 +136,16 @@ Lake, sin necesidad de cuenta cloud.
 
 ```bash
 cd lakehouse-docker-lab
-cp .env.example .env          # ajustar si hace falta (por defecto EXECUTION_MODE=local)
+cp .env.example .env
 docker compose build
 docker compose up -d
 ```
+
+> Para este modo **no hace falta editar nada** del `.env` — ya viene con
+> `EXECUTION_MODE=local` por defecto y funciona tal cual. Las variables de
+> `DATABRICKS_*` que vas a ver más abajo en el archivo son solo para el
+> "Modo 2" (más adelante en este README); mientras estés en local, ni el DAG
+> ni dbt las leen — no necesitás una cuenta de Databricks para nada de esto.
 
 Primer arranque: `airflow-init` corre `airflow db migrate` y crea el usuario
 `admin/admin` (o lo que definas en `.env`). Los servicios `producer` y
