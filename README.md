@@ -131,6 +131,10 @@ Lake, sin necesidad de cuenta cloud.
 - Docker + Docker Compose v2 (Docker Desktop recomendado, ≥6 GB RAM asignados)
 - Puertos libres: `8080` (Airflow), `8089` (Kafka UI), `8888` (Jupyter),
   `8501` (Dashboard), `9094` (Kafka host), `5432` (Postgres, interno)
+- Espacio en disco y paciencia para el primer `docker compose build`: baja
+  varias imágenes base (Kafka, Postgres, Airflow, Spark) y las arma desde
+  cero — según tu conexión puede tardar varios minutos. Las corridas
+  siguientes son instantáneas porque queda todo cacheado.
 
 ### Puesta en marcha
 
@@ -188,7 +192,7 @@ También podés correr todo manualmente sin Airflow, por ejemplo:
 ```bash
 docker compose run --rm spark-streaming \
   spark-submit --packages io.delta:delta-spark_2.12:3.2.0 \
-  --master local[*] /opt/spark/jobs/batch_bronze_to_silver.py
+  --master "local[*]" /opt/spark/jobs/batch_bronze_to_silver.py
 
 # Nota: se antepone el PATH del venv porque spark-submit/dbt resuelven
 # "python3" internamente vía PATH, no alcanza con invocarlos por ruta absoluta.
